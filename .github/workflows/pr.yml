@@ -1,0 +1,96 @@
+name: PR Quality Gates
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  api_quality:
+    name: API Lint and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install API dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r api/requirements.txt
+
+      - name: Ruff (API)
+        run: ruff check api
+
+      - name: Pytest with coverage (API, >=85%)
+        run: |
+          cd api
+          pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+
+  worker_quality:
+    name: Worker Lint and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Worker dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r worker/requirements.txt
+
+      - name: Ruff (Worker)
+        run: ruff check worker
+
+      - name: Pytest with coverage (Worker, >=85%)
+        run: |
+          cd worker
+          pytest --cov=. --cov-report=term-missing --cov-fail-under=85
+
+  docker_build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f api/Dockerfile -t imageresizer-pro-api:pr-${{ github.sha }} api
+
+      - name: Build Worker image
+        run: docker build -f worker/Dockerfile -t imageresizer-pro-worker:pr-${{ github.sha }} worker
+
+  compose_smoke:
+    name: Compose Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compose up
+        run: docker compose up -d --build
+
+      - name: Wait for API and probe endpoints
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8000/healthz; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8000/healthz
+          curl -fS -o /dev/null -w "%{http_code}\n" http://localhost:8000/readyz | grep -E "^200$"
+
+      - name: Compose down
+        if: always()
+        run: docker compose down -v
