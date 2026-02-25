@@ -1,0 +1,338 @@
+{
+  "info": {
+    "name": "ImageResizer-Pro Sprint 1",
+    "_postman_id": "8aa4ad9b-89a0-4c32-9a24-6fdb1972f1a9",
+    "description": "Sprint 1 happy-path collection for ImageResizer-Pro.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1) Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{apiBaseUrl}}/healthz",
+          "host": [
+            "{{apiBaseUrl}}"
+          ],
+          "path": [
+            "healthz"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"healthz returns 200\", function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"healthz returns JSON with status\", function () {",
+              "  const ct = pm.response.headers.get(\"Content-Type\") || \"\";",
+              "  pm.expect(ct).to.include(\"application/json\");",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property(\"status\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2) Ready",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{apiBaseUrl}}/readyz",
+          "host": [
+            "{{apiBaseUrl}}"
+          ],
+          "path": [
+            "readyz"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"readyz returns 200 (or 503 if not ready)\", function () {",
+              "  pm.expect([200, 503]).to.include(pm.response.code);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3) Create Upload URL",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"image/jpeg\",\n  \"filename\": \"test.jpg\"\n}"
+        },
+        "url": {
+          "raw": "{{apiBaseUrl}}/v1/uploads",
+          "host": [
+            "{{apiBaseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "uploads"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"uploads returns 200\", function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"uploads returns uploadUrl + inputKey\", function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property(\"uploadUrl\");",
+              "  pm.expect(body).to.have.property(\"inputKey\");",
+              "  pm.expect(body).to.have.property(\"expiresInSeconds\");",
+              "  pm.expect(body.uploadUrl).to.be.a(\"string\").and.not.empty;",
+              "  pm.expect(body.inputKey).to.be.a(\"string\").and.not.empty;",
+              "});",
+              "",
+              "pm.environment.set(\"uploadUrl\", pm.response.json().uploadUrl);",
+              "pm.environment.set(\"inputKey\", pm.response.json().inputKey);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4) Upload File (PUT presigned URL)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "image/jpeg"
+          }
+        ],
+        "body": {
+          "mode": "file",
+          "file": {
+            "src": ""
+          }
+        },
+        "url": {
+          "raw": "{{uploadUrl}}",
+          "host": [
+            "{{uploadUrl}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"upload to presigned URL succeeded (200/204)\", function () {",
+              "  pm.expect([200, 204]).to.include(pm.response.code);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5) Create Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"inputKey\": \"{{inputKey}}\",\n  \"variants\": [\n    { \"name\": \"thumb\", \"width\": 200, \"format\": \"webp\" },\n    { \"name\": \"medium\", \"width\": 800, \"format\": \"jpeg\" }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{apiBaseUrl}}/v1/jobs",
+          "host": [
+            "{{apiBaseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "jobs"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"jobs returns 201\", function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"jobs returns jobId + status\", function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property(\"jobId\");",
+              "  pm.expect(body.jobId).to.be.a(\"string\").and.not.empty;",
+              "  pm.expect(body).to.have.property(\"status\");",
+              "  pm.expect([\"CREATED\", \"QUEUED\", \"RUNNING\"]).to.include(body.status);",
+              "});",
+              "",
+              "pm.environment.set(\"jobId\", pm.response.json().jobId);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6) Get Job (Poll)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{apiBaseUrl}}/v1/jobs/{{jobId}}",
+          "host": [
+            "{{apiBaseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "jobs",
+            "{{jobId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"get job returns 200\", function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"job payload has required fields\", function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property(\"jobId\", pm.environment.get(\"jobId\"));",
+              "  pm.expect(body).to.have.property(\"status\");",
+              "  pm.expect([\"CREATED\",\"QUEUED\",\"RUNNING\",\"DONE\",\"FAILED\"]).to.include(body.status);",
+              "  pm.expect(body).to.have.property(\"variants\");",
+              "  pm.expect(body.variants).to.be.an(\"array\");",
+              "});",
+              "",
+              "const status = pm.response.json().status;",
+              "const attempts = parseInt(pm.environment.get(\"pollAttempts\") || \"0\", 10);",
+              "const maxAttempts = parseInt(pm.environment.get(\"pollMaxAttempts\") || \"20\", 10);",
+              "",
+              "if (status !== \"DONE\" && status !== \"FAILED\" && attempts < maxAttempts) {",
+              "  pm.environment.set(\"pollAttempts\", String(attempts + 1));",
+              "  postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "  pm.environment.unset(\"pollAttempts\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7) Get Downloads",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{apiBaseUrl}}/v1/jobs/{{jobId}}/downloads",
+          "host": [
+            "{{apiBaseUrl}}"
+          ],
+          "path": [
+            "v1",
+            "jobs",
+            "{{jobId}}",
+            "downloads"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"downloads returns 200\", function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"downloads response has downloads array\", function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property(\"jobId\", pm.environment.get(\"jobId\"));",
+              "  pm.expect(body).to.have.property(\"downloads\");",
+              "  pm.expect(body.downloads).to.be.an(\"array\");",
+              "});",
+              "",
+              "pm.test(\"if downloads exist, each item has expected fields\", function () {",
+              "  const body = pm.response.json();",
+              "  body.downloads.forEach(d => {",
+              "    pm.expect(d).to.have.property(\"name\");",
+              "    pm.expect(d).to.have.property(\"outputKey\");",
+              "    pm.expect(d).to.have.property(\"downloadUrl\");",
+              "    pm.expect(d).to.have.property(\"expiresInSeconds\");",
+              "  });",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "apiBaseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "uploadUrl",
+      "value": ""
+    },
+    {
+      "key": "inputKey",
+      "value": ""
+    },
+    {
+      "key": "jobId",
+      "value": ""
+    },
+    {
+      "key": "pollAttempts",
+      "value": "0"
+    },
+    {
+      "key": "pollMaxAttempts",
+      "value": "20"
+    }
+  ]
+}
