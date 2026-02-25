@@ -1,0 +1,7 @@
+boto3
+redis
+Pillow
+prometheus-client
+pytest
+pytest-cov
+ruff

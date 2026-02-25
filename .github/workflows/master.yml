@@ -1,0 +1,82 @@
+name: Master Build
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  api_quality:
+    name: API Lint and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install API dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r api/requirements.txt
+
+      - name: Ruff (API)
+        run: ruff check api
+
+      - name: Pytest with coverage (API, >=85%)
+        run: |
+          cd api
+          pytest --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+
+      - name: Upload API coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage-${{ github.sha }}
+          path: api/coverage.xml
+
+  worker_quality:
+    name: Worker Lint and Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Worker dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r worker/requirements.txt
+
+      - name: Ruff (Worker)
+        run: ruff check worker
+
+      - name: Pytest with coverage (Worker, >=85%)
+        run: |
+          cd worker
+          pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+
+      - name: Upload Worker coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-coverage-${{ github.sha }}
+          path: worker/coverage.xml
+
+  docker_build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f api/Dockerfile -t imageresizer-pro-api:${{ github.sha }} api
+
+      - name: Build Worker image
+        run: docker build -f worker/Dockerfile -t imageresizer-pro-worker:${{ github.sha }} worker

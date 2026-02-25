@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pydantic
+boto3
+redis
+prometheus-client
+pytest
+pytest-cov
+ruff
+httpx
