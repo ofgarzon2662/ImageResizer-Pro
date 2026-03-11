@@ -427,6 +427,14 @@ resource "aws_vpc_security_group_egress_rule" "alb_https_out" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+resource "aws_vpc_security_group_egress_rule" "alb_to_api" {
+  security_group_id            = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.api.id
+  ip_protocol                  = "tcp"
+  from_port                    = var.api_container_port
+  to_port                      = var.api_container_port
+}
+
 resource "aws_security_group" "api" {
   name        = local.api_sg_name
   description = "Allow API traffic only from ALB security group"

@@ -44,3 +44,4 @@ infra/tfplan.*
 worker/.coveragerc
 api/.coveragerc
 infra/gh-actions-policy.json
+infra/sgfix.tfplan
