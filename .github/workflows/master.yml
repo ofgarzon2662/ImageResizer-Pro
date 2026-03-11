@@ -181,11 +181,14 @@ jobs:
           }
           EOF
           )
+          APPSPEC_MINIFIED=$(echo "$APPSPEC" | jq -c .)
+          REVISION_JSON=$(jq -cn --arg content "$APPSPEC_MINIFIED" \
+            '{revisionType:"AppSpecContent", appSpecContent:{content:$content}}')
 
           DEPLOYMENT_ID=$(aws deploy create-deployment \
             --application-name ${{ env.CODEDEPLOY_APP }} \
             --deployment-group-name ${{ env.CODEDEPLOY_GROUP }} \
-            --revision '{"revisionType":"AppSpecContent","appSpecContent":{"content":"'"$(echo "$APPSPEC" | jq -c .)"'"}}' \
+            --revision "$REVISION_JSON" \
             --query 'deploymentId' \
             --output text)
           echo "id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
