@@ -22,8 +22,22 @@ env/
 .DS_Store
 Thumbs.db
 .vscode/
-
+.cursor/
 # Build artifacts
 build/
 dist/
 *.egg-info/
+
+# Terraform generated files and local state
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+infra/tfplan
+infra/tfplan.*
