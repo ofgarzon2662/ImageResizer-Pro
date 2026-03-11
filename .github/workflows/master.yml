@@ -90,6 +90,8 @@ jobs:
     name: Build, Push & Deploy
     needs: [api_quality, worker_quality]
     runs-on: ubuntu-latest
+    outputs:
+      alb_dns: ${{ steps.infra.outputs.alb_dns }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -113,14 +115,39 @@ jobs:
             --query 'LoadBalancers[0].DNSName' \
             --output text)
           echo "ALB_DNS=${ALB_DNS}" >> "$GITHUB_ENV"
+          echo "alb_dns=${ALB_DNS}" >> "$GITHUB_OUTPUT"
 
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
-      - name: Build and push API image
+      - name: Build API image
         run: |
           docker build -f api/Dockerfile -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_API_REPO }}:${{ github.sha }} api
+
+      - name: Validate API image health endpoint before push
+        run: |
+          docker run -d --name api-prepush-check -p 18000:8000 \
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_API_REPO }}:${{ github.sha }}
+
+          # Fail fast if /healthz never becomes healthy.
+          for i in {1..30}; do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18000/healthz || true)
+            if [ "$STATUS" -eq 200 ]; then
+              echo "API image health check passed."
+              docker rm -f api-prepush-check
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "API image failed local health check; container logs:"
+          docker logs api-prepush-check || true
+          docker rm -f api-prepush-check || true
+          exit 1
+
+      - name: Push API image
+        run: |
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_API_REPO }}:${{ github.sha }}
 
       - name: Build and push Worker image
@@ -252,6 +279,8 @@ jobs:
     name: Post-Deploy Smoke Tests
     needs: [deploy]
     runs-on: ubuntu-latest
+    env:
+      ALB_DNS: ${{ needs.deploy.outputs.alb_dns }}
     steps:
       - name: Healthz check
         run: |
