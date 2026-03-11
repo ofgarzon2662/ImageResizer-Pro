@@ -301,9 +301,18 @@ data "aws_iam_policy_document" "api_task_inline" {
   }
 
   statement {
+    sid = "BucketHeadAccessForReadiness"
+    actions = [
+      "s3:ListBucket"
+    ]
+    resources = [aws_s3_bucket.input.arn]
+  }
+
+  statement {
     sid = "SendJobsToQueue"
     actions = [
-      "sqs:SendMessage"
+      "sqs:SendMessage",
+      "sqs:GetQueueAttributes"
     ]
     resources = [aws_sqs_queue.main.arn]
   }
@@ -314,7 +323,8 @@ data "aws_iam_policy_document" "api_task_inline" {
       "dynamodb:PutItem",
       "dynamodb:GetItem",
       "dynamodb:UpdateItem",
-      "dynamodb:ConditionCheckItem"
+      "dynamodb:ConditionCheckItem",
+      "dynamodb:DescribeTable"
     ]
     resources = [aws_dynamodb_table.jobs.arn]
   }
