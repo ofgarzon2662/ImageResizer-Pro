@@ -12,7 +12,7 @@ coverage.xml
 .venv/
 venv/
 env/
-
+.venv-check/
 # Env/secret files
 .env
 .env.*
@@ -22,8 +22,25 @@ env/
 .DS_Store
 Thumbs.db
 .vscode/
-
+.cursor/
 # Build artifacts
 build/
 dist/
 *.egg-info/
+
+# Terraform generated files and local state
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+infra/tfplan
+infra/tfplan.*
+worker/.coveragerc
+api/.coveragerc
+infra/gh-actions-policy.json

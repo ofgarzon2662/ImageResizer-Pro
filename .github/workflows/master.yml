@@ -1,9 +1,27 @@
-name: Master Build
+name: Master Deploy
 
 on:
   push:
     branches:
       - master
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_API_REPO: imageresizer-s2-api
+  ECR_WORKER_REPO: imageresizer-s2-worker
+  ECS_CLUSTER: imageresizer-s2-sprint2-cluster
+  API_SERVICE: imageresizer-s2-sprint2-api-service
+  WORKER_SERVICE: imageresizer-s2-sprint2-worker-service
+  API_TASK_FAMILY: imageresizer-s2-sprint2-api-task
+  WORKER_TASK_FAMILY: imageresizer-s2-sprint2-worker-task
+  API_CONTAINER_NAME: api
+  WORKER_CONTAINER_NAME: worker
+  CODEDEPLOY_APP: imageresizer-s2-sprint2-codedeploy-app
+  CODEDEPLOY_GROUP: imageresizer-s2-sprint2-api-dg
+  ALB_NAME: imageresizer-s2-sprint2-alb
 
 jobs:
   api_quality:
@@ -11,10 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -32,7 +50,7 @@ jobs:
           pytest --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=85
 
       - name: Upload API coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: api-coverage-${{ github.sha }}
           path: api/coverage.xml
@@ -42,10 +60,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -63,20 +81,189 @@ jobs:
           pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=85
 
       - name: Upload Worker coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: worker-coverage-${{ github.sha }}
           path: worker/coverage.xml
 
-  docker_build:
-    name: Build Docker Images
+  deploy:
+    name: Build, Push & Deploy
+    needs: [api_quality, worker_quality]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Build API image
-        run: docker build -f api/Dockerfile -t imageresizer-pro-api:${{ github.sha }} api
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@ececac1a45f3b08a01d2dd070d28d111c5fe6722 # v4.1.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Build Worker image
-        run: docker build -f worker/Dockerfile -t imageresizer-pro-worker:${{ github.sha }} worker
+      - name: Derive ECR registry and ALB DNS
+        id: infra
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          echo "ECR_REGISTRY=${ECR_REGISTRY}" >> "$GITHUB_ENV"
+
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "${{ env.ALB_NAME }}" \
+            --query 'LoadBalancers[0].DNSName' \
+            --output text)
+          echo "ALB_DNS=${ALB_DNS}" >> "$GITHUB_ENV"
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Build and push API image
+        run: |
+          docker build -f api/Dockerfile -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_API_REPO }}:${{ github.sha }} api
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_API_REPO }}:${{ github.sha }}
+
+      - name: Build and push Worker image
+        run: |
+          docker build -f worker/Dockerfile -t ${{ env.ECR_REGISTRY }}/${{ env.ECR_WORKER_REPO }}:${{ github.sha }} worker
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_WORKER_REPO }}:${{ github.sha }}
+
+      # ── API: CodeDeploy blue/green ──────────────────────────────
+      - name: Get current API task definition
+        id: api-task-def
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.API_TASK_FAMILY }} \
+            --query 'taskDefinition' \
+            --output json > api-task-def.json
+
+          # Strip metadata fields that cannot be sent to register-task-definition
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            api-task-def.json > api-task-def-clean.json
+
+      - name: Update API image in task definition
+        run: |
+          jq --arg IMAGE "${{ env.ECR_REGISTRY }}/${{ env.ECR_API_REPO }}:${{ github.sha }}" \
+            --arg CONTAINER "${{ env.API_CONTAINER_NAME }}" \
+            '(.containerDefinitions[] | select(.name == $CONTAINER)).image = $IMAGE' \
+            api-task-def-clean.json > api-task-def-new.json
+
+      - name: Register new API task definition revision
+        id: register-api-td
+        run: |
+          NEW_TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://api-task-def-new.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "arn=$NEW_TD_ARN" >> "$GITHUB_OUTPUT"
+          echo "Registered API task definition: $NEW_TD_ARN"
+
+      - name: Create CodeDeploy deployment for API
+        id: codedeploy
+        run: |
+          APPSPEC=$(cat <<EOF
+          {
+            "version": 1,
+            "Resources": [
+              {
+                "TargetService": {
+                  "Type": "AWS::ECS::Service",
+                  "Properties": {
+                    "TaskDefinition": "${{ steps.register-api-td.outputs.arn }}",
+                    "LoadBalancerInfo": {
+                      "ContainerName": "${{ env.API_CONTAINER_NAME }}",
+                      "ContainerPort": 8000
+                    }
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+          )
+
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name ${{ env.CODEDEPLOY_APP }} \
+            --deployment-group-name ${{ env.CODEDEPLOY_GROUP }} \
+            --revision '{"revisionType":"AppSpecContent","appSpecContent":{"content":"'"$(echo "$APPSPEC" | jq -c .)"'"}}' \
+            --query 'deploymentId' \
+            --output text)
+          echo "id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "Created CodeDeploy deployment: $DEPLOYMENT_ID"
+
+      - name: Wait for CodeDeploy deployment to complete
+        run: |
+          echo "Waiting for deployment ${{ steps.codedeploy.outputs.id }} ..."
+          aws deploy wait deployment-successful \
+            --deployment-id ${{ steps.codedeploy.outputs.id }}
+          echo "API blue/green deployment succeeded."
+
+      # ── Worker: rolling deploy ──────────────────────────────────
+      - name: Get current Worker task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.WORKER_TASK_FAMILY }} \
+            --query 'taskDefinition' \
+            --output json > worker-task-def.json
+
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            worker-task-def.json > worker-task-def-clean.json
+
+      - name: Update Worker image in task definition
+        run: |
+          jq --arg IMAGE "${{ env.ECR_REGISTRY }}/${{ env.ECR_WORKER_REPO }}:${{ github.sha }}" \
+            --arg CONTAINER "${{ env.WORKER_CONTAINER_NAME }}" \
+            '(.containerDefinitions[] | select(.name == $CONTAINER)).image = $IMAGE' \
+            worker-task-def-clean.json > worker-task-def-new.json
+
+      - name: Register new Worker task definition revision
+        id: register-worker-td
+        run: |
+          NEW_TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://worker-task-def-new.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "arn=$NEW_TD_ARN" >> "$GITHUB_OUTPUT"
+          echo "Registered Worker task definition: $NEW_TD_ARN"
+
+      - name: Update Worker ECS service (rolling deploy)
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.WORKER_SERVICE }} \
+            --task-definition ${{ steps.register-worker-td.outputs.arn }} \
+            --force-new-deployment \
+            --query 'service.serviceName' \
+            --output text
+          echo "Worker service update triggered."
+
+      - name: Wait for Worker service stability
+        run: |
+          echo "Waiting for worker service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.WORKER_SERVICE }}
+          echo "Worker service is stable."
+
+  smoke:
+    name: Post-Deploy Smoke Tests
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Healthz check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://${{ env.ALB_DNS }}/healthz)
+          echo "GET /healthz -> $STATUS"
+          [ "$STATUS" -eq 200 ] || exit 1
+
+      - name: Readyz check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://${{ env.ALB_DNS }}/readyz)
+          echo "GET /readyz -> $STATUS"
+          [ "$STATUS" -eq 200 ] || exit 1
+
+      - name: Metrics check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://${{ env.ALB_DNS }}/metrics)
+          echo "GET /metrics -> $STATUS"
+          [ "$STATUS" -eq 200 ] || exit 1
