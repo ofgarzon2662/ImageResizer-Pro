@@ -156,6 +156,22 @@ jobs:
           docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_WORKER_REPO }}:${{ github.sha }}
 
       # ── API: CodeDeploy blue/green ──────────────────────────────
+      - name: Stop any active CodeDeploy deployment
+        run: |
+          ACTIVE_ID=$(aws deploy list-deployments \
+            --application-name ${{ env.CODEDEPLOY_APP }} \
+            --deployment-group-name ${{ env.CODEDEPLOY_GROUP }} \
+            --include-only-statuses Created Queued InProgress \
+            --query 'deployments[0]' --output text)
+          if [ "$ACTIVE_ID" != "None" ] && [ -n "$ACTIVE_ID" ]; then
+            echo "Stopping active deployment: $ACTIVE_ID"
+            aws deploy stop-deployment --deployment-id "$ACTIVE_ID" --auto-rollback-enabled || true
+            echo "Waiting for deployment to stop..."
+            sleep 15
+          else
+            echo "No active deployment to stop."
+          fi
+
       - name: Get current API task definition
         id: api-task-def
         run: |
