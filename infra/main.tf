@@ -396,7 +396,7 @@ resource "aws_iam_role" "codedeploy" {
 
 resource "aws_iam_role_policy_attachment" "codedeploy_managed_policy" {
   role       = aws_iam_role.codedeploy.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForECS"
+  policy_arn = "arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS"
 }
 
 resource "aws_ecs_cluster" "main" {
@@ -547,11 +547,13 @@ resource "aws_ecs_task_definition" "api" {
         }
       ]
       environment = [
+        { name = "ENVIRONMENT", value = "aws" },
         { name = "AWS_REGION", value = data.aws_region.current.name },
         { name = "JOBS_BUCKET_INPUT", value = aws_s3_bucket.input.bucket },
         { name = "JOBS_BUCKET_OUTPUT", value = aws_s3_bucket.output.bucket },
         { name = "JOBS_QUEUE_URL", value = aws_sqs_queue.main.url },
-        { name = "JOBS_TABLE_NAME", value = aws_dynamodb_table.jobs.name }
+        { name = "JOBS_TABLE_NAME", value = aws_dynamodb_table.jobs.name },
+        { name = "PRESIGN_TTL_SECONDS", value = "900" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -583,6 +585,7 @@ resource "aws_ecs_task_definition" "worker" {
       essential = true
       command   = ["sh", "-c", "while true; do sleep 30; done"]
       environment = [
+        { name = "ENVIRONMENT", value = "aws" },
         { name = "AWS_REGION", value = data.aws_region.current.name },
         { name = "JOBS_BUCKET_INPUT", value = aws_s3_bucket.input.bucket },
         { name = "JOBS_BUCKET_OUTPUT", value = aws_s3_bucket.output.bucket },
@@ -665,6 +668,11 @@ resource "aws_codedeploy_deployment_group" "api" {
   deployment_group_name  = local.codedeploy_group_name
   service_role_arn       = aws_iam_role.codedeploy.arn
   deployment_config_name = "CodeDeployDefault.ECSCanary10Percent5Minutes"
+
+  deployment_style {
+    deployment_type   = "BLUE_GREEN"
+    deployment_option = "WITH_TRAFFIC_CONTROL"
+  }
 
   ecs_service {
     cluster_name = aws_ecs_cluster.main.name

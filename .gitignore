@@ -12,7 +12,7 @@ coverage.xml
 .venv/
 venv/
 env/
-
+.venv-check/
 # Env/secret files
 .env
 .env.*
@@ -41,3 +41,5 @@ override.tf.json
 *.tfvars.json
 infra/tfplan
 infra/tfplan.*
+worker/.coveragerc
+api/.coveragerc
