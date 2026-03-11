@@ -85,7 +85,6 @@ def test_consume_forever_handler_error_continues(monkeypatch):
 def test_consume_forever_skips_empty_messages(monkeypatch):
     consumer, fake = _make_consumer(monkeypatch)
     call_count = [0]
-    original_receive = fake.receive_message
 
     def patched_receive(**kwargs):
         call_count[0] += 1
