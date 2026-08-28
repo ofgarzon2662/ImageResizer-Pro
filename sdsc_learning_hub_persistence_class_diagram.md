@@ -109,7 +109,7 @@ namespace SnapshotCatalog {
     +string sourceEventId
   }
 
-  class Material {
+  class TrainingMaterial {
     +string id
     +string snapshotId
     +string title
@@ -249,21 +249,21 @@ namespace AIDARetrieval {
 }
 
 User "1" *-- "1" AuthIdentity : authenticates with CILogon
-User ..> UserRole
+User "0..*" --> "1" UserRole : has role
 User "1" *-- "0..*" Bookmark : saves
 User "1" *-- "0..*" LearningProgress : resumes
 User "1" *-- "0..*" PersonalLearningPath : owns
 PersonalLearningPath "1" *-- "1..*" PersonalPathItem : orders
 CuratedLearningPath "1" *-- "1..*" CuratedPathItem : orders
 
-Bookmark "0..*" --> "1" Material : references
-LearningProgress "0..*" --> "1" Material : tracks
-PersonalPathItem "0..*" --> "1" Material : references
-CuratedPathItem "0..*" --> "1" Material : references
+Bookmark "0..*" --> "1" TrainingMaterial : references
+LearningProgress "0..*" --> "1" TrainingMaterial : tracks
+PersonalPathItem "0..*" --> "1" TrainingMaterial : references
+CuratedPathItem "0..*" --> "1" TrainingMaterial : references
 
 CatalogSnapshot "1" *-- "0..*" EventSeries : imports
 CatalogSnapshot "1" *-- "1..*" EventEdition : imports
-CatalogSnapshot "1" *-- "1..*" Material : imports
+CatalogSnapshot "1" *-- "1..*" TrainingMaterial : imports
 CatalogSnapshot "1" *-- "1..*" ContentResource : imports
 CatalogSnapshot "1" *-- "0..*" Person : imports
 CatalogSnapshot "1" *-- "0..*" Topic : imports
@@ -273,12 +273,12 @@ CatalogSnapshot "1" *-- "0..*" CatalogAlias : imports
 CatalogSnapshot "1" *-- "1..*" CatalogRelationship : imports
 
 EventEdition "0..*" --> "0..1" EventSeries : INSTANCE_OF
-EventEdition "0..1" --> "1..*" Material : HAS_MATERIAL
-Material "0..*" --> "1..*" ContentResource : HAS_RESOURCE
-Material "0..*" --> "0..*" Topic : COVERS_TOPIC
-Material "0..*" --> "0..*" Tool : TEACHES_TOOL
-Material "0..*" --> "0..*" System : TARGETS_SYSTEM
-Material "0..*" --> "0..*" Person : TAUGHT_BY
+EventEdition "0..1" --> "1..*" TrainingMaterial : HAS_MATERIAL
+TrainingMaterial "0..*" --> "1..*" ContentResource : HAS_RESOURCE
+TrainingMaterial "0..*" --> "0..*" Topic : COVERS_TOPIC
+TrainingMaterial "0..*" --> "0..*" Tool : TEACHES_TOOL
+TrainingMaterial "0..*" --> "0..*" System : TARGETS_SYSTEM
+TrainingMaterial "0..*" --> "0..*" Person : TAUGHT_BY
 
 CatalogAlias ..> EventSeries : may name
 CatalogAlias ..> Topic : may name
@@ -288,7 +288,7 @@ CatalogRelationship ..> RelationshipType
 ContentResource ..> ResourceType
 
 CatalogSnapshot "1" *-- "0..*" ContentChunk : imports
-ContentChunk "0..*" --> "1" Material : grounds answer
+ContentChunk "0..*" --> "1" TrainingMaterial : grounds answer
 ContentChunk "0..*" --> "1" ContentResource : cites
 ContentChunk "0..*" --> "0..1" EventEdition : event context
 ContentChunk ..> ChunkSourceKind
@@ -308,7 +308,7 @@ The sections share one PostgreSQL database for the MVP. The separation identifie
 - React/Next.js components and NestJS controllers, services, guards, and modules
 - S3 bucket, snapshot importer, GitHub Actions, and deployment infrastructure
 - CILogon OAuth/OIDC request sequence and tokens
-- Material submission, drafts, moderation, and publication workflow
+- Training material submission, drafts, moderation, and publication workflow
 - Shared or group learning paths and path visibility
 - Neo4j and GraphRAG research paths
 - AIDA conversation history until ownership, deletion, and retention are defined
